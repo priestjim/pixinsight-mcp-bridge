@@ -84,6 +84,19 @@ var TOOLS = [
       },
       required: ["viewId"]
     }
+  },
+  {
+    name: "get_image_from_view",
+    description: "Get the actual image contents of a view as a base64-encoded JPEG. Returns the image data suitable for visual inspection by an LLM.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        viewId: {
+          type: "string",
+          description: "The ID of the view to capture (e.g. 'Image01'). If omitted, uses the currently focused view."
+        }
+      }
+    }
   }
 ];
 
@@ -261,6 +274,18 @@ MCPHandler.prototype._handleToolsCall = function (id, params, callback) {
       callback(null, jsonRpcResponse(id, {
         content: [{ type: "text", text: "Error: " + (err.message || String(err)) }],
         isError: true
+      }));
+    } else if (result && result._imageData) {
+      // Image result - return as MCP image content
+      var content = [
+        { type: "image", data: result._imageData, mimeType: result._mimeType || "image/jpeg" }
+      ];
+      if (result._metadata) {
+        content.push({ type: "text", text: JSON.stringify(result._metadata) });
+      }
+      callback(null, jsonRpcResponse(id, {
+        content: content,
+        isError: false
       }));
     } else {
       var text;

@@ -30,6 +30,7 @@
 var MCP_BRIDGE_VERSION = "1.0.0";
 var DEFAULT_PORT = 3189;
 var POLL_INTERVAL_MS = 50;    // How often to check for incoming commands (ms)
+var SETTINGS_KEY_CUSTOM_PROCESSES = "MCPBridge/CustomProcesses";
 var NODE_SEARCH_PATHS = [
    "/usr/local/bin/node",
    "/usr/bin/node",
@@ -78,6 +79,30 @@ function findNodePath() {
    }
 
    return null;
+}
+
+// ============================================================================
+// Custom Process Persistence
+// ============================================================================
+
+function loadCustomProcesses() {
+   try {
+      var json = Settings.read(SETTINGS_KEY_CUSTOM_PROCESSES, DataType_String);
+      if (json) {
+         return JSON.parse(json);
+      }
+   } catch (e) {
+      Console.warningln("[MCP Bridge] Failed to load custom processes: " + String(e));
+   }
+   return [];
+}
+
+function saveCustomProcesses(processes) {
+   try {
+      Settings.write(SETTINGS_KEY_CUSTOM_PROCESSES, DataType_String, JSON.stringify(processes));
+   } catch (e) {
+      Console.warningln("[MCP Bridge] Failed to save custom processes: " + String(e));
+   }
 }
 
 // ============================================================================
@@ -315,6 +340,13 @@ MCPBridgeController.prototype.stop = function() {
 };
 
 /**
+ * Set custom processes on the dispatcher.
+ */
+MCPBridgeController.prototype.setCustomProcesses = function(processes) {
+   this._dispatcher.setCustomProcesses(processes);
+};
+
+/**
  * Check if the bridge is running.
  */
 MCPBridgeController.prototype.isRunning = function() {
@@ -330,6 +362,7 @@ function MCPBridgeDialog() {
    this.__base__();
 
    this.controller = new MCPBridgeController();
+   this._customProcesses = loadCustomProcesses();
 
    var self = this;
 
@@ -360,6 +393,92 @@ function MCPBridgeDialog() {
    // --- Status ---
    this.statusLabel = new Label(this);
    this.statusLabel.text = "Status: Stopped";
+
+   // --- Custom Processes ---
+   this.customProcessGroup = new GroupBox(this);
+   this.customProcessGroup.title = "Custom Processes";
+   this.customProcessGroup.toolTip = "Register additional PixInsight processes to expose via MCP (e.g. third-party plugins).";
+
+   this.processTree = new TreeBox(this.customProcessGroup);
+   this.processTree.numberOfColumns = 3;
+   this.processTree.headerVisible = true;
+   this.processTree.setHeaderText(0, "Process ID");
+   this.processTree.setHeaderText(1, "Category");
+   this.processTree.setHeaderText(2, "Description");
+   this.processTree.setMinHeight(120);
+
+   // Populate TreeBox from saved custom processes
+   for (var i = 0; i < this._customProcesses.length; i++) {
+      this._addProcessToTree(this._customProcesses[i]);
+   }
+
+   // Input fields for adding a new process
+   this.processIdLabel = new Label(this.customProcessGroup);
+   this.processIdLabel.text = "Process ID:";
+   this.processIdLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+
+   this.processIdEdit = new Edit(this.customProcessGroup);
+   this.processIdEdit.toolTip = "The PixInsight process constructor name (e.g. BlurXTerminator)";
+   this.processIdEdit.setMinWidth(140);
+
+   this.categoryLabel = new Label(this.customProcessGroup);
+   this.categoryLabel.text = "Category:";
+   this.categoryLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+
+   this.categoryEdit = new Edit(this.customProcessGroup);
+   this.categoryEdit.toolTip = "Category for grouping (e.g. ThirdParty)";
+   this.categoryEdit.setMinWidth(100);
+
+   this.descriptionLabel = new Label(this.customProcessGroup);
+   this.descriptionLabel.text = "Description:";
+   this.descriptionLabel.textAlignment = TextAlign_Right | TextAlign_VertCenter;
+
+   this.descriptionEdit = new Edit(this.customProcessGroup);
+   this.descriptionEdit.toolTip = "Brief description of what the process does";
+
+   this.addProcessButton = new PushButton(this.customProcessGroup);
+   this.addProcessButton.text = "Add";
+   this.addProcessButton.icon = this.scaledResource(":/icons/add.png");
+   this.addProcessButton.onClick = function() {
+      self._onAddProcess();
+   };
+
+   this.removeProcessButton = new PushButton(this.customProcessGroup);
+   this.removeProcessButton.text = "Remove";
+   this.removeProcessButton.icon = this.scaledResource(":/icons/remove.png");
+   this.removeProcessButton.onClick = function() {
+      self._onRemoveProcess();
+   };
+
+   // Layout for input row 1: Process ID + Category
+   this.inputRow1 = new HorizontalSizer();
+   this.inputRow1.spacing = 4;
+   this.inputRow1.add(this.processIdLabel);
+   this.inputRow1.add(this.processIdEdit);
+   this.inputRow1.addSpacing(8);
+   this.inputRow1.add(this.categoryLabel);
+   this.inputRow1.add(this.categoryEdit);
+
+   // Layout for input row 2: Description
+   this.inputRow2 = new HorizontalSizer();
+   this.inputRow2.spacing = 4;
+   this.inputRow2.add(this.descriptionLabel);
+   this.inputRow2.add(this.descriptionEdit, 1);
+
+   // Layout for buttons row
+   this.processButtonSizer = new HorizontalSizer();
+   this.processButtonSizer.spacing = 6;
+   this.processButtonSizer.add(this.addProcessButton);
+   this.processButtonSizer.add(this.removeProcessButton);
+   this.processButtonSizer.addStretch();
+
+   this.customProcessGroup.sizer = new VerticalSizer();
+   this.customProcessGroup.sizer.margin = 6;
+   this.customProcessGroup.sizer.spacing = 4;
+   this.customProcessGroup.sizer.add(this.processTree, 1);
+   this.customProcessGroup.sizer.add(this.inputRow1);
+   this.customProcessGroup.sizer.add(this.inputRow2);
+   this.customProcessGroup.sizer.add(this.processButtonSizer);
 
    // --- Buttons ---
    this.startButton = new PushButton(this);
@@ -397,16 +516,100 @@ function MCPBridgeDialog() {
    this.sizer.add(this.infoLabel);
    this.sizer.add(this.portSizer);
    this.sizer.add(this.statusLabel);
+   this.sizer.add(this.customProcessGroup, 1);
    this.sizer.addSpacing(4);
    this.sizer.add(this.buttonSizer);
 
    this.adjustToContents();
-   this.setMinWidth(400);
+   this.setMinWidth(500);
+   this.setMinHeight(400);
 }
 
 MCPBridgeDialog.prototype = new Dialog();
 
+MCPBridgeDialog.prototype._addProcessToTree = function(entry) {
+   var node = new TreeBoxNode(this.processTree);
+   node.setText(0, entry.id);
+   node.setText(1, entry.category);
+   node.setText(2, entry.description);
+};
+
+MCPBridgeDialog.prototype._onAddProcess = function() {
+   var processId = this.processIdEdit.text.trim();
+   var category = this.categoryEdit.text.trim();
+   var description = this.descriptionEdit.text.trim();
+
+   if (!processId) {
+      Console.warningln("[MCP Bridge] Process ID is required");
+      return;
+   }
+
+   // Check for duplicates
+   for (var i = 0; i < this._customProcesses.length; i++) {
+      if (this._customProcesses[i].id === processId) {
+         Console.warningln("[MCP Bridge] Process '" + processId + "' is already registered");
+         return;
+      }
+   }
+
+   var entry = {
+      id: processId,
+      category: category || "Custom",
+      description: description || ""
+   };
+
+   this._customProcesses.push(entry);
+   saveCustomProcesses(this._customProcesses);
+
+   this._addProcessToTree(entry);
+
+   // Clear input fields
+   this.processIdEdit.text = "";
+   this.categoryEdit.text = "";
+   this.descriptionEdit.text = "";
+
+   if (this.controller.isRunning()) {
+      this.controller.setCustomProcesses(this._customProcesses);
+   }
+
+   Console.writeln("[MCP Bridge] Registered custom process: " + processId);
+};
+
+MCPBridgeDialog.prototype._onRemoveProcess = function() {
+   var node = this.processTree.currentNode;
+   if (!node) {
+      Console.warningln("[MCP Bridge] No process selected");
+      return;
+   }
+
+   var processId = node.text(0);
+
+   // Remove from array
+   for (var i = 0; i < this._customProcesses.length; i++) {
+      if (this._customProcesses[i].id === processId) {
+         this._customProcesses.splice(i, 1);
+         break;
+      }
+   }
+   saveCustomProcesses(this._customProcesses);
+
+   // Remove from TreeBox
+   for (var i = 0; i < this.processTree.numberOfChildren; i++) {
+      if (this.processTree.child(i) === node) {
+         this.processTree.remove(i);
+         break;
+      }
+   }
+
+   if (this.controller.isRunning()) {
+      this.controller.setCustomProcesses(this._customProcesses);
+   }
+
+   Console.writeln("[MCP Bridge] Removed custom process: " + processId);
+};
+
 MCPBridgeDialog.prototype._onStart = function() {
+   this.controller.setCustomProcesses(this._customProcesses);
    var port = this.portSpinBox.value;
    if (this.controller.start(port)) {
       this.statusLabel.text = "Status: Running on port " + port;

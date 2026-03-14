@@ -12,8 +12,17 @@
  */
 function CommandDispatcher() {
    this._handlers = {};
+   this._customProcesses = [];
    this._registerHandlers();
 }
+
+/**
+ * Set user-registered custom processes.
+ * Each entry should have { id, category, description }.
+ */
+CommandDispatcher.prototype.setCustomProcesses = function(processes) {
+   this._customProcesses = processes || [];
+};
 
 /**
  * Register all built-in command handlers.
@@ -39,6 +48,10 @@ CommandDispatcher.prototype._registerHandlers = function() {
 
    this._handlers["set_focused_view"] = function(params) {
       return self._setFocusedView(params);
+   };
+
+   this._handlers["get_image_from_view"] = function(params) {
+      return self._getImageFromView(params);
    };
 };
 
@@ -74,7 +87,7 @@ CommandDispatcher.prototype._listProcesses = function(params) {
    // Strategy 1: Try to get all installed process definitions
    // PixInsight PJSR exposes all processes as global constructors.
    // We enumerate known process categories and their processes.
-   var processRegistry = this._getProcessRegistry();
+   var processRegistry = this._getProcessRegistry().concat(this._customProcesses);
 
    for (var i = 0; i < processRegistry.length; i++) {
       var entry = processRegistry[i];
@@ -212,7 +225,6 @@ CommandDispatcher.prototype._getProcessRegistry = function() {
       { id: "HDRMultiscaleTransform", category: "HDR", description: "HDR multiscale transform" },
 
       // --- Mosaic ---
-      { id: "StarAlignment", category: "Mosaic", description: "Star-based image registration" },
       { id: "GradientMergeMosaic", category: "Mosaic", description: "Gradient domain mosaic merge" },
 
       // --- Script Processes (commonly available) ---
@@ -431,4 +443,81 @@ CommandDispatcher.prototype._setFocusedView = function(params) {
    }
 
    throw "View or window not found: " + viewId;
+};
+
+// ============================================================================
+// get_image_from_view - Get image contents as base64-encoded JPEG
+// ============================================================================
+
+CommandDispatcher.prototype._getImageFromView = function(params) {
+   var viewId = params.viewId;
+   var view;
+   var w;
+
+   if (viewId) {
+      view = View.viewById(viewId);
+      if (!view || view.isNull) {
+         throw "View not found: " + viewId;
+      }
+      w = view.window;
+   } else {
+      w = ImageWindow.activeWindow;
+      if (!w || w.isNull) {
+         throw "No active image window";
+      }
+      view = w.currentView;
+   }
+
+   var img = view.image;
+
+   // Build a unique temp file path
+   var tmpDir = File.systemTempDirectory;
+   var tmpFile = tmpDir + "/pixinsight_mcp_" + view.id + "_" + Date.now() + ".jpg";
+
+   // Use FileFormatInstance to write the view as JPEG
+   var fmt = new FileFormatInstance("JPEG");
+   if (fmt.isNull) {
+      throw "JPEG file format is not available";
+   }
+
+   var base64Data;
+   try {
+      if (!fmt.create(tmpFile, "quality 92")) {
+         throw "Failed to create temp file: " + tmpFile;
+      }
+
+      var options = fmt.imageOptions;
+      options.bitsPerSample = 8;
+      fmt.imageOptions = options;
+
+      if (typeof fmt.jpegQuality !== "undefined") {
+         fmt.jpegQuality = 92;
+      }
+
+      if (!fmt.writeImage(img)) {
+         throw "Failed to write image data";
+      }
+
+      fmt.close();
+      var fileData = File.readFile(tmpFile);
+      base64Data = fileData.toBase64();
+   } finally {
+      try { fmt.close(); } catch (ignored) {}
+      try { File.remove(tmpFile); } catch (ignored) {}
+   }
+
+   // Return with special _imageData key that the MCP handler recognizes
+   return {
+      _imageData: base64Data,
+      _mimeType: "image/jpeg",
+      _metadata: {
+         viewId: view.id,
+         fullId: view.fullId,
+         width: img.width,
+         height: img.height,
+         numberOfChannels: img.numberOfChannels,
+         isColor: img.isColor,
+         bitsPerSample: img.bitsPerSample
+      }
+   };
 };

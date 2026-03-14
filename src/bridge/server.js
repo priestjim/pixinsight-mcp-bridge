@@ -78,6 +78,19 @@ SessionManager.prototype.remove = function (id) {
 // Mock handler for standalone mode (no PixInsight connection)
 // ---------------------------------------------------------------------------
 
+// 1x1 red JPEG as base64 — used by mock get_image_from_view
+var MOCK_JPEG_BASE64 = "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMCwsKCwsM" +
+  "EBEQDg8TDwsQGBITFRUVFAwPFxgaFBQYFBT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQU" +
+  "FBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUB" +
+  "AQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1Fh" +
+  "ByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWm" +
+  "NkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJ" +
+  "ytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcI" +
+  "CQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLR" +
+  "ChYkNOEl8RcYI4Q/RFhHRUYnJCk6OTU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6" +
+  "goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn" +
+  "6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD9U6KKKAp//9k=";
+
 function createMockHandler(command, callback) {
   switch (command.command) {
     case "list_processes":
@@ -124,6 +137,22 @@ function createMockHandler(command, callback) {
         processId: command.params.processId,
         executedOn: command.params.viewId || "global",
         note: "Running in standalone mode - process execution simulated"
+      });
+      break;
+    case "get_image_from_view":
+      callback(null, {
+        _imageData: MOCK_JPEG_BASE64,
+        _mimeType: "image/jpeg",
+        _metadata: {
+          viewId: command.params.viewId || "Image01",
+          fullId: command.params.viewId || "Image01",
+          width: 1,
+          height: 1,
+          numberOfChannels: 3,
+          isColor: true,
+          bitsPerSample: 8,
+          note: "Running in standalone mode - returning placeholder image"
+        }
       });
       break;
     default:

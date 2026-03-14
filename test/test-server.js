@@ -142,6 +142,17 @@ describe("createMockHandler", function () {
     });
   });
 
+  it("handles get_image_from_view", function (done) {
+    createMockHandler({ command: "get_image_from_view", params: { viewId: "Image01" } }, function (err, result) {
+      assert.strictEqual(err, null);
+      assert.ok(result._imageData);
+      assert.strictEqual(result._mimeType, "image/jpeg");
+      assert.ok(result._metadata);
+      assert.strictEqual(result._metadata.viewId, "Image01");
+      done();
+    });
+  });
+
   it("returns error for unknown command", function (done) {
     createMockHandler({ command: "unknown_cmd", params: {} }, function (err, result) {
       assert.ok(err);
@@ -235,7 +246,7 @@ describe("BridgeServer - HTTP endpoints (standalone)", function () {
       assert.strictEqual(err, null);
       var body = JSON.parse(data);
       assert.ok(body.result.tools);
-      assert.strictEqual(body.result.tools.length, 5);
+      assert.strictEqual(body.result.tools.length, 6);
       done();
     });
   });

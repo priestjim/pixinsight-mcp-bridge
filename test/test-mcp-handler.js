@@ -147,6 +147,7 @@ describe("MCPHandler - tools/list", function () {
         assert.ok(toolNames.indexOf("list_views") !== -1);
         assert.ok(toolNames.indexOf("get_focused_view") !== -1);
         assert.ok(toolNames.indexOf("set_focused_view") !== -1);
+        assert.ok(toolNames.indexOf("get_image_from_view") !== -1);
       }
     );
   });
@@ -269,6 +270,48 @@ describe("MCPHandler - tools/call", function () {
         assert.strictEqual(receivedCommand.params.processId, "PixelMath");
         assert.strictEqual(receivedCommand.params.parameters.expression, "$T*2");
         assert.strictEqual(receivedCommand.params.viewId, "Image01");
+      }
+    );
+  });
+
+  it("returns image content for _imageData results", function () {
+    var mockImageResult = {
+      _imageData: "AQID",
+      _mimeType: "image/jpeg",
+      _metadata: { viewId: "Image01", width: 100, height: 100 }
+    };
+    var handler = createHandler(mockImageResult);
+
+    handler.handleMessage(
+      {
+        jsonrpc: "2.0", id: 40, method: "tools/call",
+        params: { name: "get_image_from_view", arguments: {} }
+      },
+      function (err, resp) {
+        assert.strictEqual(resp.id, 40);
+        assert.strictEqual(resp.result.isError, false);
+        assert.strictEqual(resp.result.content.length, 2);
+        assert.strictEqual(resp.result.content[0].type, "image");
+        assert.strictEqual(resp.result.content[0].data, "AQID");
+        assert.strictEqual(resp.result.content[0].mimeType, "image/jpeg");
+        assert.strictEqual(resp.result.content[1].type, "text");
+        var meta = JSON.parse(resp.result.content[1].text);
+        assert.strictEqual(meta.viewId, "Image01");
+      }
+    );
+  });
+
+  it("returns image content without metadata text if _metadata absent", function () {
+    var handler = createHandler({ _imageData: "AQID", _mimeType: "image/png" });
+    handler.handleMessage(
+      {
+        jsonrpc: "2.0", id: 41, method: "tools/call",
+        params: { name: "get_image_from_view", arguments: {} }
+      },
+      function (err, resp) {
+        assert.strictEqual(resp.result.content.length, 1);
+        assert.strictEqual(resp.result.content[0].type, "image");
+        assert.strictEqual(resp.result.content[0].mimeType, "image/png");
       }
     );
   });

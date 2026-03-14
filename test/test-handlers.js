@@ -138,9 +138,27 @@ function loadHandlers() {
     ImageWindow: mockPI.ImageWindow,
     View: mockPI.View,
     Console: mockPI.Console,
-    File: { exists: function () { return true; } },
+    File: {
+      exists: function () { return true; },
+      systemTempDirectory: "/tmp",
+      readFile: function () {
+        // Return a mock ByteArray with toBase64
+        return {
+          toBase64: function () { return "mockBase64ImageData"; }
+        };
+      },
+      remove: function () { }
+    },
+    FileFormatInstance: function (fmt) {
+      this.isNull = false;
+      this.imageOptions = { bitsPerSample: 8 };
+      this.create = function () { return true; };
+      this.writeImage = function () { return true; };
+      this.close = function () { };
+    },
     PixelMath: mockPI.PixelMath,
     HistogramTransformation: mockPI.HistogramTransformation,
+    Date: Date,
     // JavaScript globals
     JSON: JSON,
     String: String,
@@ -355,5 +373,114 @@ describe("CommandDispatcher - invoke_process", function () {
       viewId: "NoSuchView"
     });
     assert.ok(result.error);
+  });
+});
+
+describe("CommandDispatcher - custom processes", function () {
+  function addMockProcess(sandbox) {
+    sandbox.BlurXTerminator = function () {
+      this.executeOn = function () { };
+      this.executeGlobal = function () { };
+      this.canExecuteOn = function () { return true; };
+      this.canExecuteGlobal = function () { return true; };
+    };
+  }
+
+  it("includes custom processes in list_processes", function () {
+    var sandbox = loadHandlers();
+    var dispatcher = new sandbox.CommandDispatcher();
+    addMockProcess(sandbox);
+
+    dispatcher.setCustomProcesses([
+      { id: "BlurXTerminator", category: "ThirdParty", description: "AI-powered deconvolution" }
+    ]);
+
+    var result = dispatcher.dispatch("list_processes", {});
+    var ids = result.result.processes.map(function (p) { return p.id; });
+    assert.ok(ids.indexOf("BlurXTerminator") !== -1, "Should include custom process");
+  });
+
+  it("filters custom processes by category", function () {
+    var sandbox = loadHandlers();
+    var dispatcher = new sandbox.CommandDispatcher();
+    addMockProcess(sandbox);
+
+    dispatcher.setCustomProcesses([
+      { id: "BlurXTerminator", category: "ThirdParty", description: "AI deconvolution" }
+    ]);
+
+    var result = dispatcher.dispatch("list_processes", { category: "ThirdParty" });
+    var ids = result.result.processes.map(function (p) { return p.id; });
+    assert.ok(ids.indexOf("BlurXTerminator") !== -1, "Should find custom process by category");
+  });
+
+  it("excludes unavailable custom processes", function () {
+    var sandbox = loadHandlers();
+    var dispatcher = new sandbox.CommandDispatcher();
+
+    // Do NOT add NoSuchProcess to the sandbox — it should be filtered out
+    dispatcher.setCustomProcesses([
+      { id: "NoSuchProcess", category: "Custom", description: "Not installed" }
+    ]);
+
+    var result = dispatcher.dispatch("list_processes", {});
+    var ids = result.result.processes.map(function (p) { return p.id; });
+    assert.ok(ids.indexOf("NoSuchProcess") === -1, "Should exclude unavailable custom process");
+  });
+
+  it("can invoke a custom process", function () {
+    var sandbox = loadHandlers();
+    var dispatcher = new sandbox.CommandDispatcher();
+    addMockProcess(sandbox);
+
+    var result = dispatcher.dispatch("invoke_process", {
+      processId: "BlurXTerminator",
+      viewId: "Image01"
+    });
+    assert.ok(result.result);
+    assert.strictEqual(result.result.success, true);
+    assert.strictEqual(result.result.processId, "BlurXTerminator");
+  });
+});
+
+describe("CommandDispatcher - get_image_from_view", function () {
+  it("returns base64 image data for a specific view", function () {
+    var sandbox = loadHandlers();
+    var dispatcher = new sandbox.CommandDispatcher();
+    var result = dispatcher.dispatch("get_image_from_view", { viewId: "Image01" });
+    assert.ok(result.result);
+    assert.strictEqual(result.result._imageData, "mockBase64ImageData");
+    assert.strictEqual(result.result._mimeType, "image/jpeg");
+    assert.ok(result.result._metadata);
+    assert.strictEqual(result.result._metadata.viewId, "Image01");
+    assert.strictEqual(result.result._metadata.width, 4096);
+    assert.strictEqual(result.result._metadata.height, 4096);
+    assert.strictEqual(result.result._metadata.isColor, true);
+  });
+
+  it("returns image from active view when viewId omitted", function () {
+    var sandbox = loadHandlers();
+    var dispatcher = new sandbox.CommandDispatcher();
+    var result = dispatcher.dispatch("get_image_from_view", {});
+    assert.ok(result.result);
+    assert.strictEqual(result.result._imageData, "mockBase64ImageData");
+    assert.ok(result.result._metadata.viewId);
+  });
+
+  it("returns error for non-existent view", function () {
+    var sandbox = loadHandlers();
+    var dispatcher = new sandbox.CommandDispatcher();
+    var result = dispatcher.dispatch("get_image_from_view", { viewId: "NoSuchView" });
+    assert.ok(result.error);
+    assert.ok(result.error.message.indexOf("View not found") !== -1);
+  });
+
+  it("returns error when no active window and no viewId", function () {
+    var sandbox = loadHandlers();
+    sandbox.ImageWindow.activeWindow = { isNull: true };
+    var dispatcher = new sandbox.CommandDispatcher();
+    var result = dispatcher.dispatch("get_image_from_view", {});
+    assert.ok(result.error);
+    assert.ok(result.error.message.indexOf("No active image window") !== -1);
   });
 });

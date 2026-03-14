@@ -11,6 +11,8 @@ PixInsight MCP Bridge runs as a PixInsight script that spawns a local Node.js HT
 - **List open image views** with metadata (dimensions, color space, bit depth)
 - **Get the currently focused view** and its properties
 - **Change focus** to any open view by ID
+- **Capture image data** from any view as base64-encoded JPEG for LLM visual inspection
+- **Register custom processes** (e.g. third-party plugins) via the dialog UI, persisted across sessions
 
 ## Architecture
 
@@ -105,8 +107,19 @@ For clients that support Streamable HTTP transport, use:
 1. Open PixInsight
 2. Go to **Script > MCP > PixInsight MCP Bridge**
 3. Set the port (default: 3189)
-4. Click **Start**
-5. The bridge server will start and the MCP endpoint will be available at `http://127.0.0.1:3189`
+4. Optionally register custom processes (see below)
+5. Click **Start**
+6. The bridge server will start and the MCP endpoint will be available at `http://127.0.0.1:3189`
+
+### Registering Custom Processes
+
+The built-in process registry covers ~60 common PixInsight processes. To expose third-party processes (BlurXTerminator, StarNet2, NoiseXTerminator, etc.):
+
+1. In the bridge dialog, find the **Custom Processes** section
+2. Enter the **Process ID** (the exact constructor name, e.g. `BlurXTerminator`), a **Category**, and a **Description**
+3. Click **Add**
+
+Custom processes are persisted across PixInsight sessions. They are verified at runtime — if a registered process isn't installed, it will be silently excluded from `list_processes` results. You can add or remove custom processes while the bridge is running; changes take effect immediately.
 
 ### Available MCP Tools
 
@@ -170,6 +183,16 @@ Change focus to a specific view by ID.
 | Parameter | Type   | Required | Description                |
 | --------- | ------ | -------- | -------------------------- |
 | `viewId`  | string | Yes      | View ID (e.g. "Image01")  |
+
+#### `get_image_from_view`
+
+Get the actual image contents of a view as a base64-encoded JPEG. The image is saved to a temporary JPEG file, read back as base64, and returned as MCP image content alongside metadata (dimensions, color space, bit depth).
+
+| Parameter | Type   | Required | Description                                                        |
+| --------- | ------ | -------- | ------------------------------------------------------------------ |
+| `viewId`  | string | No       | View ID to capture. If omitted, captures the currently focused view |
+
+The response includes both the image data (as MCP `image` content) and a text block with view metadata.
 
 ### Standalone Mode (Testing)
 
@@ -254,13 +277,15 @@ The test suite includes:
 
 ### Adding New Processes to the Registry
 
-Edit `CommandDispatcher.prototype._getProcessRegistry` in `src/lib/handlers.jsh` to add new process entries:
+**For end users:** Use the **Custom Processes** section in the bridge dialog UI to register additional processes. These are persisted via PixInsight's Settings API and survive restarts.
+
+**For developers:** Edit `CommandDispatcher.prototype._getProcessRegistry` in `src/lib/handlers.jsh` to add new built-in process entries:
 
 ```javascript
 { id: "NewProcess", category: "CategoryName", description: "What it does" }
 ```
 
-Processes are verified at runtime — entries for processes not installed in the user's PixInsight will be automatically excluded.
+All processes (both built-in and custom) are verified at runtime — entries for processes not installed in the user's PixInsight will be automatically excluded.
 
 ### PJSR Development Notes
 
